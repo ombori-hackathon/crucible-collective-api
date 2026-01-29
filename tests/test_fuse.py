@@ -161,18 +161,18 @@ class TestFusabilityRules:
 
         assert CrucibleOrchestrator.can_fuse(Rarity.Material, Rarity.Material)
 
-    def test_can_fuse_material_uncommon(self):
-        """Material + Uncommon should be valid (special combo)."""
+    def test_can_fuse_material_common(self):
+        """Material + Common should be valid."""
         from app.orchestrator.crucible import CrucibleOrchestrator
 
-        assert CrucibleOrchestrator.can_fuse(Rarity.Material, Rarity.Uncommon)
-        assert CrucibleOrchestrator.can_fuse(Rarity.Uncommon, Rarity.Material)
+        assert CrucibleOrchestrator.can_fuse(Rarity.Material, Rarity.Common)
+        assert CrucibleOrchestrator.can_fuse(Rarity.Common, Rarity.Material)
 
-    def test_cannot_fuse_common_material(self):
-        """Common + Material should be invalid."""
+    def test_cannot_fuse_material_uncommon(self):
+        """Material + Uncommon should be invalid."""
         from app.orchestrator.crucible import CrucibleOrchestrator
 
-        assert not CrucibleOrchestrator.can_fuse(Rarity.Common, Rarity.Material)
+        assert not CrucibleOrchestrator.can_fuse(Rarity.Material, Rarity.Uncommon)
 
     def test_cannot_fuse_common_rare(self):
         """Cross-rarity fusion (Common + Rare) should be invalid."""
@@ -181,7 +181,7 @@ class TestFusabilityRules:
         assert not CrucibleOrchestrator.can_fuse(Rarity.Common, Rarity.Rare)
 
     def test_can_fuse_same_rarity(self):
-        """Same rarity fusion should be valid for all tiers."""
+        """Same rarity fusion should be valid for Common through Epic."""
         from app.orchestrator.crucible import CrucibleOrchestrator
 
         for rarity in [
@@ -189,11 +189,16 @@ class TestFusabilityRules:
             Rarity.Uncommon,
             Rarity.Rare,
             Rarity.Epic,
-            Rarity.Legendary,
         ]:
             assert CrucibleOrchestrator.can_fuse(
                 rarity, rarity
             ), f"{rarity} + {rarity} should fuse"
+
+    def test_cannot_fuse_legendary(self):
+        """Legendary items cannot be fused."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        assert not CrucibleOrchestrator.can_fuse(Rarity.Legendary, Rarity.Legendary)
 
 
 class TestDeterministicRarity:
@@ -208,14 +213,14 @@ class TestDeterministicRarity:
         )
         assert result == Rarity.Common
 
-    def test_result_material_uncommon(self):
-        """Material + Uncommon should produce Common."""
+    def test_result_material_common(self):
+        """Material + Common should produce Uncommon."""
         from app.orchestrator.crucible import CrucibleOrchestrator
 
         result = CrucibleOrchestrator.calculate_deterministic_rarity(
-            Rarity.Material, Rarity.Uncommon
+            Rarity.Material, Rarity.Common
         )
-        assert result == Rarity.Common
+        assert result == Rarity.Uncommon
 
     def test_result_common_common(self):
         """Common + Common should produce Uncommon."""
@@ -253,14 +258,14 @@ class TestDeterministicRarity:
         )
         assert result == Rarity.Legendary
 
-    def test_result_legendary_legendary(self):
-        """Legendary + Legendary should produce Legendary (capped)."""
+    def test_result_legendary_legendary_invalid(self):
+        """Legendary + Legendary should return None (not fusable)."""
         from app.orchestrator.crucible import CrucibleOrchestrator
 
         result = CrucibleOrchestrator.calculate_deterministic_rarity(
             Rarity.Legendary, Rarity.Legendary
         )
-        assert result == Rarity.Legendary
+        assert result is None
 
     def test_invalid_combination_returns_none(self):
         """Invalid combinations should return None."""
