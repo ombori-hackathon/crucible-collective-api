@@ -161,14 +161,36 @@ async def fuse_items(
     db.flush()  # Get the new item's ID
     logger.info(f"Created new item with itemid={new_item.itemid}")
 
-    # Remove consumed items from inventory
+    # Decrement quantity of consumed items (delete if quantity becomes 0)
     for inventory_entry in inventory_entries:
-        logger.debug(f"Removing inventory entry {inventory_entry.id}")
-        db.delete(inventory_entry)
+        if inventory_entry.quantity > 1:
+            inventory_entry.quantity -= 1
+            logger.debug(
+                f"Decremented inventory entry {inventory_entry.id} to quantity {inventory_entry.quantity}"
+            )
+        else:
+            logger.debug(
+                f"Removing inventory entry {inventory_entry.id} (quantity was 1)"
+            )
+            db.delete(inventory_entry)
 
-    # Add new item to user's inventory
-    new_inventory_entry = Inventory(userid=request.userid, itemid=new_item.itemid)
-    db.add(new_inventory_entry)
+    # Add new item to user's inventory (upsert pattern)
+    existing_inventory = (
+        db.query(Inventory)
+        .filter(Inventory.userid == request.userid, Inventory.itemid == new_item.itemid)
+        .first()
+    )
+
+    if existing_inventory:
+        existing_inventory.quantity += 1
+        logger.debug(
+            f"Incremented existing inventory entry to {existing_inventory.quantity}"
+        )
+    else:
+        new_inventory_entry = Inventory(
+            userid=request.userid, itemid=new_item.itemid, quantity=1
+        )
+        db.add(new_inventory_entry)
 
     db.commit()
     db.refresh(new_item)

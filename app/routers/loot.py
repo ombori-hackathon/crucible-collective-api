@@ -94,16 +94,30 @@ async def get_loot(userid: int = 1, db: Session = Depends(get_db)) -> list[Item]
     selected = random.sample(materials, min(4, len(materials)))
     logger.info(f"Selected materials: {[m['name'] for m in selected]}")
 
-    # Get or create items and add to inventory
+    # Get or create items and add to inventory (upsert pattern)
     items: list[Item] = []
     for material in selected:
         item = _get_or_create_item(db, material)
         items.append(item)
 
-        # Add to inventory
-        inventory_entry = Inventory(userid=user.userid, itemid=item.itemid)
-        db.add(inventory_entry)
-        logger.debug(f"Added {item.name} to inventory for user {userid}")
+        # Upsert to inventory: increment quantity if exists, else create with quantity=1
+        existing = (
+            db.query(Inventory)
+            .filter(Inventory.userid == user.userid, Inventory.itemid == item.itemid)
+            .first()
+        )
+
+        if existing:
+            existing.quantity += 1
+            logger.debug(
+                f"Incremented {item.name} quantity to {existing.quantity} for user {userid}"
+            )
+        else:
+            inventory_entry = Inventory(
+                userid=user.userid, itemid=item.itemid, quantity=1
+            )
+            db.add(inventory_entry)
+            logger.debug(f"Added {item.name} to inventory for user {userid}")
 
     db.commit()
     logger.info(f"Loot complete: {len(items)} items added to user {userid} inventory")
