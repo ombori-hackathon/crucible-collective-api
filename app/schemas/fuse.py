@@ -27,5 +27,18 @@ class FuseResponse(BaseModel):
         default=None, description="The critic's evaluation of the item"
     )
     critic_score: float = Field(
-        description="The critic's score (0.0-1.0)", ge=0.0, le=1.0
+        default=0.0,
+        description="DEPRECATED: No longer used. Kept for backward compatibility.",
+        ge=0.0,
+        le=1.0,
+    )
+    attempts: int = Field(
+        default=1,
+        description="Number of generation attempts (1-3) before critic approved",
+        ge=1,
+        le=3,
+    )
+    critic_feedback: Optional[str] = Field(
+        default=None,
+        description="Final critic feedback (APPROVED or last REDO reason)",
     )

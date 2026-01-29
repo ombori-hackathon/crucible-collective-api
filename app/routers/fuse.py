@@ -1,6 +1,7 @@
 """Fuse endpoint for combining materials into items."""
 
 import random
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -25,8 +26,71 @@ ITEM_TYPE_WEIGHTS = {
     ItemType.consumable: 20,
 }
 
-# Stats for items
-ITEM_STATS = ["strength", "defense", "magic", "speed", "luck"]
+# Maximum attempts for critic-alchemist loop
+MAX_GENERATION_ATTEMPTS = 3
+
+
+async def generate_with_critic_loop(
+    alchemist: AlchemistPersona,
+    critic: CriticPersona,
+    material_names: list[str],
+    item_type: str,
+    rarity: Rarity,
+) -> tuple[dict, int, Optional[str]]:
+    """Generate an item with critic quality control loop.
+
+    The alchemist generates an item, the critic evaluates it.
+    If rejected, the alchemist regenerates with feedback.
+    Repeats up to MAX_GENERATION_ATTEMPTS times.
+
+    Args:
+        alchemist: AlchemistPersona instance
+        critic: CriticPersona instance
+        material_names: Names of materials being fused
+        item_type: Type of item to generate
+        rarity: Target rarity tier
+
+    Returns:
+        Tuple of (item_data dict, attempts count, final critic feedback)
+    """
+    previous_feedback: Optional[str] = None
+    final_feedback: Optional[str] = None
+
+    for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
+        logger.info(f"Generation attempt {attempt}/{MAX_GENERATION_ATTEMPTS}")
+
+        # Alchemist generates item
+        item_data = await alchemist.generate_item(
+            material_names=material_names,
+            item_type=item_type,
+            rarity=rarity,
+            previous_feedback=previous_feedback,
+        )
+
+        # Critic evaluates
+        evaluation = await critic.evaluate_quality(
+            name=item_data["name"],
+            description=item_data["description"],
+            visual_prompt=item_data["visual_prompt"],
+            stat=item_data["stat"],
+            stat_value=item_data["stat_value"],
+            rarity=rarity,
+            item_type=item_type,
+        )
+
+        if evaluation["status"] == "APPROVED":
+            logger.info(f"Critic approved on attempt {attempt}")
+            final_feedback = "APPROVED"
+            return item_data, attempt, final_feedback
+
+        # Rejected - prepare for next attempt
+        previous_feedback = evaluation.get("feedback", "Quality not sufficient")
+        final_feedback = previous_feedback
+        logger.info(f"Critic rejected: {previous_feedback}")
+
+    # Max attempts reached, use last generated item
+    logger.warning(f"Max attempts ({MAX_GENERATION_ATTEMPTS}) reached, using last item")
+    return item_data, MAX_GENERATION_ATTEMPTS, final_feedback
 
 
 @router.post("/fuse", response_model=FuseResponse)
@@ -36,10 +100,21 @@ async def fuse_items(
 ) -> FuseResponse:
     """Fuse 2 items together to create a new item.
 
-    Uses:
-    - AlchemistPersona to describe the fusion and suggest a name
-    - CriticPersona to evaluate the result
-    - CrucibleOrchestrator to calculate rarity/stats
+    Uses deterministic rarity calculation based on input rarities.
+    Valid fusion combinations:
+    - Material + Material → Common
+    - Material + Uncommon → Common (special combo)
+    - Common + Common → Uncommon
+    - Uncommon + Uncommon → Rare
+    - Rare + Rare → Epic
+    - Epic + Epic → Legendary
+    - Legendary + Legendary → Legendary (capped)
+
+    Invalid combinations return 400 error:
+    - Common + Material (Common cannot fuse with Material)
+    - Any cross-rarity fusion (e.g., Common + Rare)
+
+    Uses agentic critic-alchemist loop for quality control (max 3 attempts).
 
     Args:
         request: FuseRequest with userid and itemids
@@ -49,7 +124,7 @@ async def fuse_items(
         FuseResponse with the new item and persona commentary
 
     Raises:
-        HTTPException: 404 if user not found, 400 for validation errors
+        HTTPException: 404 if user not found, 400 for validation/fusability errors
     """
     logger.info(f"Fuse request for userid={request.userid}, itemids={request.itemids}")
 
@@ -90,6 +165,30 @@ async def fuse_items(
     input_rarities = [item.rarity for item in items]
     logger.info(f"Fusing materials: {material_names}")
 
+    # Validate fusability
+    rarity1, rarity2 = input_rarities[0], input_rarities[1]
+    if not CrucibleOrchestrator.can_fuse(rarity1, rarity2):
+        fusable = CrucibleOrchestrator.get_fusable_rarities(rarity1)
+        fusable_names = [r.value for r in fusable]
+        logger.warning(
+            f"Invalid fusion: {rarity1.value} + {rarity2.value} "
+            f"(valid for {rarity1.value}: {fusable_names})"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot fuse {rarity1.value} with {rarity2.value}. "
+            f"{rarity1.value} can only fuse with: {', '.join(fusable_names)}",
+        )
+
+    # Calculate deterministic result rarity
+    result_rarity = CrucibleOrchestrator.calculate_deterministic_rarity(
+        rarity1, rarity2
+    )
+    if not result_rarity:
+        # This shouldn't happen if can_fuse passed, but handle it
+        raise HTTPException(status_code=400, detail="Invalid fusion combination")
+    logger.info(f"Deterministic result rarity: {result_rarity.value}")
+
     # Initialize personas
     alchemist = AlchemistPersona()
     critic = CriticPersona()
@@ -100,40 +199,21 @@ async def fuse_items(
     result_type = random.choices(item_types, weights=weights, k=1)[0]
     logger.info(f"Rolled item type: {result_type.value}")
 
-    # Generate item name with Alchemist
-    item_name = await alchemist.suggest_item_name(material_names, result_type.value)
-    if not item_name:
-        item_name = f"Mysterious {result_type.value.title()}"
-    item_name = item_name.strip().strip('"')
-    logger.info(f"Generated item name: {item_name}")
-
-    # Generate fusion description with Alchemist
-    alchemist_description = await alchemist.describe_fusion(material_names)
-    if not alchemist_description:
-        alchemist_description = (
-            f"*mixes {', '.join(material_names)} in the crucible* Fascinating results!"
-        )
-    logger.info(f"Alchemist says: {alchemist_description[:50]}...")
-
-    # Evaluate with Critic
-    critic_score, critic_says = await critic.evaluate_item(
-        item_name, alchemist_description, material_names
+    # Generate item with critic-alchemist loop
+    item_data, attempts, critic_feedback = await generate_with_critic_loop(
+        alchemist=alchemist,
+        critic=critic,
+        material_names=material_names,
+        item_type=result_type.value,
+        rarity=result_rarity,
     )
-    logger.info(f"Critic score: {critic_score}, says: {critic_says}")
 
-    # Calculate rarity based on input rarities and critic score
-    result_rarity = CrucibleOrchestrator.calculate_fusion_rarity(
-        input_rarities, critic_score
-    )
-    logger.info(f"Result rarity: {result_rarity.value}")
+    item_name = item_data["name"].strip().strip('"')
+    alchemist_description = item_data["description"]
+    result_stat = item_data["stat"]
+    result_stat_value = item_data["stat_value"]
 
-    # Roll stat
-    result_stat = random.choice(ITEM_STATS)
-
-    # Calculate stat value based on input items + rarity bonus
-    base_stat = sum(item.stat_value for item in items)
-    rarity_bonus = list(Rarity).index(result_rarity) * 3
-    result_stat_value = base_stat + random.randint(5, 15) + rarity_bonus
+    logger.info(f"Generated item: {item_name} after {attempts} attempt(s)")
 
     # Calculate gold value
     result_gold_value = CrucibleOrchestrator.calculate_gold_value(result_rarity)
@@ -199,6 +279,8 @@ async def fuse_items(
     return FuseResponse(
         item=ItemSchema.model_validate(new_item),
         alchemist_says=alchemist_description,
-        critic_says=critic_says,
-        critic_score=critic_score,
+        critic_says=critic_feedback,
+        critic_score=0.0,  # Deprecated, kept for backward compatibility
+        attempts=attempts,
+        critic_feedback=critic_feedback,
     )

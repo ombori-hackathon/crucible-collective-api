@@ -147,3 +147,185 @@ def test_fuse_consumes_items(client, user_with_items, db_session):
     # Verify original items removed, new item added (net: 2 - 2 + 1 = 1)
     inv_count_after = db_session.query(Inventory).filter(Inventory.userid == 1).count()
     assert inv_count_after == 1
+
+
+# ============== New Fusability Tests ==============
+
+
+class TestFusabilityRules:
+    """Tests for the deterministic fusability rules."""
+
+    def test_can_fuse_material_material(self):
+        """Material + Material should be valid."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        assert CrucibleOrchestrator.can_fuse(Rarity.Material, Rarity.Material)
+
+    def test_can_fuse_material_uncommon(self):
+        """Material + Uncommon should be valid (special combo)."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        assert CrucibleOrchestrator.can_fuse(Rarity.Material, Rarity.Uncommon)
+        assert CrucibleOrchestrator.can_fuse(Rarity.Uncommon, Rarity.Material)
+
+    def test_cannot_fuse_common_material(self):
+        """Common + Material should be invalid."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        assert not CrucibleOrchestrator.can_fuse(Rarity.Common, Rarity.Material)
+
+    def test_cannot_fuse_common_rare(self):
+        """Cross-rarity fusion (Common + Rare) should be invalid."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        assert not CrucibleOrchestrator.can_fuse(Rarity.Common, Rarity.Rare)
+
+    def test_can_fuse_same_rarity(self):
+        """Same rarity fusion should be valid for all tiers."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        for rarity in [
+            Rarity.Common,
+            Rarity.Uncommon,
+            Rarity.Rare,
+            Rarity.Epic,
+            Rarity.Legendary,
+        ]:
+            assert CrucibleOrchestrator.can_fuse(
+                rarity, rarity
+            ), f"{rarity} + {rarity} should fuse"
+
+
+class TestDeterministicRarity:
+    """Tests for deterministic rarity calculation."""
+
+    def test_result_material_material(self):
+        """Material + Material should produce Common."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        result = CrucibleOrchestrator.calculate_deterministic_rarity(
+            Rarity.Material, Rarity.Material
+        )
+        assert result == Rarity.Common
+
+    def test_result_material_uncommon(self):
+        """Material + Uncommon should produce Common."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        result = CrucibleOrchestrator.calculate_deterministic_rarity(
+            Rarity.Material, Rarity.Uncommon
+        )
+        assert result == Rarity.Common
+
+    def test_result_common_common(self):
+        """Common + Common should produce Uncommon."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        result = CrucibleOrchestrator.calculate_deterministic_rarity(
+            Rarity.Common, Rarity.Common
+        )
+        assert result == Rarity.Uncommon
+
+    def test_result_uncommon_uncommon(self):
+        """Uncommon + Uncommon should produce Rare."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        result = CrucibleOrchestrator.calculate_deterministic_rarity(
+            Rarity.Uncommon, Rarity.Uncommon
+        )
+        assert result == Rarity.Rare
+
+    def test_result_rare_rare(self):
+        """Rare + Rare should produce Epic."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        result = CrucibleOrchestrator.calculate_deterministic_rarity(
+            Rarity.Rare, Rarity.Rare
+        )
+        assert result == Rarity.Epic
+
+    def test_result_epic_epic(self):
+        """Epic + Epic should produce Legendary."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        result = CrucibleOrchestrator.calculate_deterministic_rarity(
+            Rarity.Epic, Rarity.Epic
+        )
+        assert result == Rarity.Legendary
+
+    def test_result_legendary_legendary(self):
+        """Legendary + Legendary should produce Legendary (capped)."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        result = CrucibleOrchestrator.calculate_deterministic_rarity(
+            Rarity.Legendary, Rarity.Legendary
+        )
+        assert result == Rarity.Legendary
+
+    def test_invalid_combination_returns_none(self):
+        """Invalid combinations should return None."""
+        from app.orchestrator.crucible import CrucibleOrchestrator
+
+        result = CrucibleOrchestrator.calculate_deterministic_rarity(
+            Rarity.Common, Rarity.Rare
+        )
+        assert result is None
+
+
+class TestFuseEndpointFusability:
+    """Tests for /fuse endpoint fusability validation."""
+
+    @pytest.fixture
+    def user_with_mixed_items(self, db_session):
+        """Create a test user with items of different rarities."""
+        user = User(userid=2, gold=100)
+        db_session.add(user)
+
+        common_item = Item(
+            name="Iron Sword",
+            type=ItemType.weapon,
+            rarity=Rarity.Common,
+            gold_value=5,
+        )
+        rare_item = Item(
+            name="Dragon Scale",
+            type=ItemType.armor,
+            rarity=Rarity.Rare,
+            gold_value=30,
+        )
+        db_session.add_all([common_item, rare_item])
+        db_session.flush()
+
+        inv1 = Inventory(userid=2, itemid=common_item.itemid)
+        inv2 = Inventory(userid=2, itemid=rare_item.itemid)
+        db_session.add_all([inv1, inv2])
+        db_session.commit()
+
+        return user, [common_item, rare_item]
+
+    def test_fuse_rejects_incompatible_rarities(self, client, user_with_mixed_items):
+        """Test that /fuse returns 400 for incompatible rarity combinations."""
+        user, items = user_with_mixed_items
+
+        response = client.post(
+            "/fuse",
+            json={"userid": 2, "itemids": [items[0].itemid, items[1].itemid]},
+        )
+
+        assert response.status_code == 400
+        assert "Cannot fuse" in response.json()["detail"]
+
+    def test_fuse_response_includes_attempts(self, client, user_with_items):
+        """Test that /fuse response includes the attempts field."""
+        user, items = user_with_items
+
+        response = client.post(
+            "/fuse",
+            json={"userid": 1, "itemids": [items[0].itemid, items[1].itemid]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "attempts" in data
+        assert 1 <= data["attempts"] <= 3
