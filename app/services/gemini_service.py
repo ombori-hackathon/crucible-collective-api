@@ -1,11 +1,16 @@
 """Singleton service for Gemini AI integration."""
 
+import asyncio
 from typing import Optional
 
 from app.config import settings
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Retry configuration for rate limiting
+MAX_RETRIES = 3
+INITIAL_BACKOFF_SECONDS = 1.0
 
 
 class GeminiService:
@@ -68,27 +73,55 @@ class GeminiService:
             logger.warning("Gemini not available - returning None")
             return None
 
-        try:
-            logger.info(f"Generating text with prompt length: {len(prompt)}")
-            logger.debug(f"Prompt: {prompt[:100]}...")
+        config = {"temperature": temperature}
+        if system_instruction:
+            config["system_instruction"] = system_instruction
 
-            config = {"temperature": temperature}
-            if system_instruction:
-                config["system_instruction"] = system_instruction
+        backoff = INITIAL_BACKOFF_SECONDS
+        last_error = None
 
-            response = self._client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt,
-                config=config,
-            )
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                logger.info(f"Generating text with prompt length: {len(prompt)}")
+                logger.debug(f"Prompt: {prompt[:100]}...")
 
-            result = response.text
-            logger.info(f"Generated text length: {len(result)}")
-            return result
+                response = self._client.models.generate_content(
+                    model="gemini-3-flash-preview",
+                    contents=prompt,
+                    config=config,
+                )
 
-        except Exception as e:
-            logger.error(f"Text generation failed: {type(e).__name__}: {e}")
-            return None
+                result = response.text
+                logger.info(f"Generated text length: {len(result)}")
+                return result
+
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+
+                # Check if it's a rate limit error (429)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    if attempt < MAX_RETRIES:
+                        logger.warning(
+                            f"Rate limited (attempt {attempt}/{MAX_RETRIES}), "
+                            f"retrying in {backoff:.1f}s..."
+                        )
+                        await asyncio.sleep(backoff)
+                        backoff *= 2  # Exponential backoff
+                        continue
+                    else:
+                        logger.warning(
+                            f"Rate limited after {MAX_RETRIES} attempts - "
+                            "using fallback generation"
+                        )
+                        return None
+                else:
+                    # Non-rate-limit error, don't retry
+                    logger.error(f"Text generation failed: {type(e).__name__}: {e}")
+                    return None
+
+        logger.warning(f"All {MAX_RETRIES} attempts failed: {last_error}")
+        return None
 
     async def generate_image(
         self,
@@ -108,33 +141,63 @@ class GeminiService:
             logger.warning("Gemini not available - returning None")
             return None
 
-        try:
-            logger.info(f"Generating image with prompt: {prompt[:50]}...")
+        backoff = INITIAL_BACKOFF_SECONDS
+        last_error = None
 
-            response = self._client.models.generate_images(
-                model="imagen-3.0-generate-002",
-                prompt=prompt,
-                config={
-                    "number_of_images": 1,
-                    "aspect_ratio": aspect_ratio,
-                },
-            )
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                logger.info(f"Generating image with prompt: {prompt[:50]}...")
 
-            if response.generated_images:
-                # Get the base64 encoded image
-                image = response.generated_images[0]
-                import base64
+                response = self._client.models.generate_images(
+                    model="imagen-3.0-generate-002",
+                    prompt=prompt,
+                    config={
+                        "number_of_images": 1,
+                        "aspect_ratio": aspect_ratio,
+                    },
+                )
 
-                image_data = base64.b64encode(image.image.image_bytes).decode("utf-8")
-                logger.info("Image generated successfully")
-                return image_data
+                if response.generated_images:
+                    # Get the base64 encoded image
+                    image = response.generated_images[0]
+                    import base64
 
-            logger.warning("No image generated")
-            return None
+                    image_data = base64.b64encode(image.image.image_bytes).decode(
+                        "utf-8"
+                    )
+                    logger.info("Image generated successfully")
+                    return image_data
 
-        except Exception as e:
-            logger.error(f"Image generation failed: {type(e).__name__}: {e}")
-            return None
+                logger.warning("No image generated")
+                return None
+
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+
+                # Check if it's a rate limit error (429)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    if attempt < MAX_RETRIES:
+                        logger.warning(
+                            f"Rate limited (attempt {attempt}/{MAX_RETRIES}), "
+                            f"retrying in {backoff:.1f}s..."
+                        )
+                        await asyncio.sleep(backoff)
+                        backoff *= 2  # Exponential backoff
+                        continue
+                    else:
+                        logger.warning(
+                            f"Rate limited after {MAX_RETRIES} attempts - "
+                            "image generation unavailable"
+                        )
+                        return None
+                else:
+                    # Non-rate-limit error, don't retry
+                    logger.error(f"Image generation failed: {type(e).__name__}: {e}")
+                    return None
+
+        logger.warning(f"All {MAX_RETRIES} attempts failed: {last_error}")
+        return None
 
 
 # Singleton instance

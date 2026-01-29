@@ -29,14 +29,14 @@ RARITY_WEIGHTS: dict[Rarity, int] = {
 
 # Deterministic fusion rules: (rarity1, rarity2) -> result_rarity
 # Both orders are handled by sorting in can_fuse/calculate_deterministic_rarity
+# Note: Legendary items cannot be fused (excluded from UI selection)
 FUSION_RULES: dict[Tuple[Rarity, Rarity], Rarity] = {
     (Rarity.Material, Rarity.Material): Rarity.Common,
-    (Rarity.Material, Rarity.Uncommon): Rarity.Common,  # Special combo
+    (Rarity.Material, Rarity.Common): Rarity.Uncommon,
     (Rarity.Common, Rarity.Common): Rarity.Uncommon,
     (Rarity.Uncommon, Rarity.Uncommon): Rarity.Rare,
     (Rarity.Rare, Rarity.Rare): Rarity.Epic,
     (Rarity.Epic, Rarity.Epic): Rarity.Legendary,
-    (Rarity.Legendary, Rarity.Legendary): Rarity.Legendary,  # Capped
 }
 
 # Rarity level for sorting (lower = less rare)
@@ -87,11 +87,11 @@ class CrucibleOrchestrator:
 
         Valid combinations:
         - Material + Material → Common
-        - Material + Uncommon → Common (special combo)
-        - Same rarity + Same rarity (Common+, except Material handled above)
+        - Material + Common → Uncommon
+        - Same rarity + Same rarity (Common through Epic)
 
         Invalid combinations:
-        - Common + Material (Common cannot fuse with Material)
+        - Legendary items (cannot be fused at all)
         - Any cross-rarity fusion (e.g., Common + Rare, Uncommon + Epic)
 
         Args:
