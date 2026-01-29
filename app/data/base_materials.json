@@ -1,0 +1,154 @@
+{
+  "materials": [
+    {
+      "name": "Iron Ore",
+      "description": "A chunk of common iron ore, the foundation of all metalwork.",
+      "category": "ore"
+    },
+    {
+      "name": "Copper Ore",
+      "description": "Reddish ore with excellent conductivity for magical enchantments.",
+      "category": "ore"
+    },
+    {
+      "name": "Silver Ore",
+      "description": "Precious metal ore, effective against dark creatures.",
+      "category": "ore"
+    },
+    {
+      "name": "Gold Ore",
+      "description": "Lustrous ore prized for its beauty and magical affinity.",
+      "category": "ore"
+    },
+    {
+      "name": "Mythril Shard",
+      "description": "A fragment of the legendary light metal, incredibly rare.",
+      "category": "ore"
+    },
+    {
+      "name": "Obsidian Chunk",
+      "description": "Volcanic glass with razor-sharp edges and dark energy.",
+      "category": "ore"
+    },
+    {
+      "name": "Starstone Fragment",
+      "description": "A piece of meteor that fell from the heavens.",
+      "category": "ore"
+    },
+    {
+      "name": "Crystal Quartz",
+      "description": "Clear crystal that amplifies magical energy.",
+      "category": "ore"
+    },
+    {
+      "name": "Ember Coal",
+      "description": "Magical coal that burns eternally with inner fire.",
+      "category": "ore"
+    },
+    {
+      "name": "Frost Iron",
+      "description": "Iron infused with eternal cold from the northern wastes.",
+      "category": "ore"
+    },
+    {
+      "name": "Moonpetal",
+      "description": "A delicate flower that only blooms under moonlight.",
+      "category": "plant"
+    },
+    {
+      "name": "Sunleaf",
+      "description": "Golden leaves that store solar energy.",
+      "category": "plant"
+    },
+    {
+      "name": "Whispergrass",
+      "description": "Grass that sways to sounds no mortal can hear.",
+      "category": "plant"
+    },
+    {
+      "name": "Bloodroot",
+      "description": "A crimson root with powerful restorative properties.",
+      "category": "plant"
+    },
+    {
+      "name": "Shadowmoss",
+      "description": "Dark moss that grows only in places touched by shadow.",
+      "category": "plant"
+    },
+    {
+      "name": "Thunderbark",
+      "description": "Bark from trees struck by lightning, crackling with energy.",
+      "category": "plant"
+    },
+    {
+      "name": "Dreamvine",
+      "description": "A vine that grows between the waking world and dreams.",
+      "category": "plant"
+    },
+    {
+      "name": "Phoenix Ash",
+      "description": "Residue from a phoenix's rebirth, warm to the touch.",
+      "category": "plant"
+    },
+    {
+      "name": "Frostbloom",
+      "description": "A flower that blooms in winter's coldest days.",
+      "category": "plant"
+    },
+    {
+      "name": "Voidcap Mushroom",
+      "description": "A mushroom that grows at the edges of reality.",
+      "category": "plant"
+    },
+    {
+      "name": "Dragon Scale",
+      "description": "A shed scale from an ancient dragon, hard as steel.",
+      "category": "resource"
+    },
+    {
+      "name": "Phoenix Feather",
+      "description": "A feather that glows with inner flame.",
+      "category": "resource"
+    },
+    {
+      "name": "Unicorn Hair",
+      "description": "Silvery hair imbued with pure magic.",
+      "category": "resource"
+    },
+    {
+      "name": "Giant Spider Silk",
+      "description": "Incredibly strong silk from massive arachnids.",
+      "category": "resource"
+    },
+    {
+      "name": "Kraken Ink",
+      "description": "Dark ink from the depths, perfect for inscriptions.",
+      "category": "resource"
+    },
+    {
+      "name": "Elemental Essence",
+      "description": "Concentrated energy from a defeated elemental.",
+      "category": "resource"
+    },
+    {
+      "name": "Fairy Dust",
+      "description": "Glittering powder with unpredictable magical effects.",
+      "category": "resource"
+    },
+    {
+      "name": "Demon Horn",
+      "description": "A twisted horn radiating dark power.",
+      "category": "resource"
+    },
+    {
+      "name": "Angel Tear",
+      "description": "A crystallized tear with purifying properties.",
+      "category": "resource"
+    },
+    {
+      "name": "Void Shard",
+      "description": "A piece of crystallized nothingness from beyond the veil.",
+      "category": "resource"
+    }
+  ]
+}

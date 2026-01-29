@@ -1,45 +1,72 @@
+"""Main FastAPI application for The Crucible TCG backend."""
+
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.db import Base, engine, get_db
-from app.models.item import Item as ItemModel
-from app.schemas.item import Item as ItemSchema
+from app.db import Base, engine
+from app.logging_config import (
+    generate_request_id,
+    get_logger,
+    request_id_ctx,
+    setup_logging,
+)
+from app.models import Inventory, Item, User  # noqa: F401 - needed for table creation
+from app.routers import fuse, loot, sell, stash
+
+# Initialize logging
+setup_logging(level=logging.INFO)
+logger = get_logger(__name__)
 
 
-def seed_database(db: Session):
-    """Seed the database with sample items if empty"""
-    if db.query(ItemModel).count() == 0:
-        sample_items = [
-            ItemModel(name="Widget", description="A useful widget for your desk", price=9.99),
-            ItemModel(name="Gadget", description="A fancy gadget with buttons", price=19.99),
-            ItemModel(name="Gizmo", description="An amazing gizmo that does things", price=29.99),
-        ]
-        db.add_all(sample_items)
-        db.commit()
-        print("Database seeded with sample items")
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Middleware to add request ID to each request context."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = generate_request_id()
+        token = request_id_ctx.set(request_id)
+
+        logger.info(f"{request.method} {request.url.path}")
+
+        try:
+            response = await call_next(request)
+            logger.info(f"Response status: {response.status_code}")
+            response.headers["X-Request-ID"] = request_id
+            return response
+        except Exception as e:
+            logger.error(f"Request failed: {type(e).__name__}: {e}")
+            raise
+        finally:
+            request_id_ctx.reset(token)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables and seed data
+    """Application lifespan: startup and shutdown."""
+    logger.info("Starting The Crucible API...")
+
+    # Create tables
+    logger.info("Creating database tables...")
     Base.metadata.create_all(bind=engine)
-    db = next(get_db())
-    seed_database(db)
-    db.close()
+    logger.info("Database tables created")
+
     yield
-    # Shutdown: cleanup if needed
+
+    logger.info("Shutting down The Crucible API...")
 
 
 app = FastAPI(
-    title="Hackathon API",
-    description="Backend API for Ombori Hackathon",
+    title="The Crucible TCG API",
+    description="Backend API for The Crucible generative trading card game",
     version="0.1.0",
     lifespan=lifespan,
 )
 
+# Add middlewares
+app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -48,27 +75,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register routers
+app.include_router(loot.router)
+app.include_router(fuse.router)
+app.include_router(stash.router)
+app.include_router(sell.router)
+
 
 @app.get("/")
 async def root():
-    return {"message": "Hackathon API is running!", "docs": "/docs"}
+    """Root endpoint."""
+    logger.debug("Root endpoint called")
+    return {
+        "message": "The Crucible TCG API is running!",
+        "docs": "/docs",
+        "endpoints": {
+            "loot": "GET /loot?userid=1 - Get 4 random materials",
+            "fuse": "POST /fuse - Combine materials (coming soon)",
+            "stash": "GET /stash?userid=1 - View inventory (coming soon)",
+            "sell": "POST /sell - Sell items (coming soon)",
+        },
+    }
 
 
 @app.get("/health")
 async def health():
+    """Health check endpoint."""
     return {"status": "healthy"}
-
-
-@app.get("/items", response_model=list[ItemSchema])
-async def get_items(db: Session = Depends(get_db)):
-    """Get all items from the database"""
-    return db.query(ItemModel).all()
-
-
-@app.get("/items/{item_id}", response_model=ItemSchema)
-async def get_item(item_id: int, db: Session = Depends(get_db)):
-    """Get a specific item by ID"""
-    item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-    return item
